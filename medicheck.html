@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeDZCheck — AI Health Assessment</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --navy: #0b1b38; --teal: #00a896; --white: #ffffff;
+            --light: #f4f7f6; --border: #d8e0ec; --shadow: 0 8px 30px rgba(0,0,0,0.08);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'DM Sans', sans-serif; background: var(--light); color: var(--navy); padding: 20px; }
+        .container { max-width: 700px; margin: 40px auto; }
+        .card { background: var(--white); padding: 30px; border-radius: 20px; box-shadow: var(--shadow); margin-bottom: 20px; }
+        
+        /* Search Box Logic */
+        .search-area { position: relative; margin-bottom: 20px; }
+        input { width: 100%; padding: 15px; border-radius: 10px; border: 2px solid var(--border); outline: none; font-size: 1rem; }
+        input:focus { border-color: var(--teal); }
+        #results-dropdown { 
+            position: absolute; width: 100%; background: white; border: 1px solid var(--border); 
+            border-top: none; max-height: 200px; overflow-y: auto; display: none; z-index: 10;
+            border-radius: 0 0 10px 10px; box-shadow: var(--shadow);
+        }
+        .result-item { padding: 12px; cursor: pointer; border-bottom: 1px solid #eee; }
+        .result-item:hover { background: #f0fdfa; color: var(--teal); }
+
+        /* Selected Chips */
+        .chip-box { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; min-height: 50px; border: 1px dashed var(--border); padding: 10px; border-radius: 10px; }
+        .chip { background: var(--navy); color: white; padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; display: flex; align-items: center; }
+        .chip b { margin-left: 8px; cursor: pointer; color: var(--teal); }
+
+        button { width: 100%; background: var(--teal); color: white; border: none; padding: 16px; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 1rem; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        #loader { display: none; text-align: center; margin: 20px 0; color: var(--teal); font-weight: bold; }
+        .diagnosis-card { display: none; border-top: 5px solid var(--teal); }
+        .prediction { display: flex; justify-content: space-between; padding: 15px; background: #f9f9f9; border-radius: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h1>AI Symptom Checker</h1>
+        <p style="color: #666; margin-bottom: 20px;">Search and click symptoms to add them.</p>
+
+        <div class="search-area">
+            <input type="text" id="search-input" placeholder="Search (e.g. fever, headache...)" oninput="doSearch(this.value)">
+            <div id="results-dropdown"></div>
+        </div>
+
+        <div class="chip-box" id="chip-container">
+            </div>
+
+        <button id="main-btn" onclick="sendToAI()">Run AI Analysis</button>
+        <div id="loader">Processing 246,000 data points...</div>
+    </div>
+
+    <div id="result-card" class="card diagnosis-card">
+        <h2>Results</h2>
+        <div id="results-list"></div>
+    </div>
+</div>
+
+<script>
+    let selectedSymptoms = new Set();
+    let allSymptoms = [];
+
+    // 1. Fetch available symptoms from app.py when page opens
+    window.onload = async () => {
+        try {
+            const res = await fetch('http://localhost:5000/symptoms');
+            const data = await res.json();
+            allSymptoms = data.symptoms;
+            console.log("Symptoms Loaded:", allSymptoms.length);
+        } catch (e) {
+            alert("Error: Make sure app.py is running!");
+        }
+    };
+
+    // 2. Search logic
+    function doSearch(val) {
+        const drop = document.getElementById('results-dropdown');
+        drop.innerHTML = '';
+        if (val.length < 2) { drop.style.display = 'none'; return; }
+
+        const matches = allSymptoms.filter(s => 
+            s.toLowerCase().replace(/_/g, ' ').includes(val.toLowerCase())
+        ).slice(0, 10);
+
+        if (matches.length > 0) {
+            drop.style.display = 'block';
+            matches.forEach(m => {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+                item.textContent = m.replace(/_/g, ' ');
+                item.onclick = () => {
+                    selectedSymptoms.add(m); // ADD TO SET
+                    renderChips();
+                    document.getElementById('search-input').value = '';
+                    drop.style.display = 'none';
+                };
+                drop.appendChild(item);
+            });
+        } else {
+            drop.style.display = 'none';
+        }
+    }
+
+    function renderChips() {
+        const container = document.getElementById('chip-container');
+        container.innerHTML = '';
+        selectedSymptoms.forEach(s => {
+            const chip = document.createElement('div');
+            chip.className = 'chip';
+            chip.innerHTML = `${s.replace(/_/g, ' ')} <b onclick="removeS('${s}')">×</b>`;
+            container.appendChild(chip);
+        });
+    }
+
+    function removeS(s) {
+        selectedSymptoms.delete(s);
+        renderChips();
+    }
+
+    // 3. Send to Flask
+    async function sendToAI() {
+        // VERIFICATION: Check the actual Set size
+        if (selectedSymptoms.size === 0) {
+            alert("Please search and select at least one symptom first!");
+            return;
+        }
+
+        const btn = document.getElementById('main-btn');
+        btn.disabled = true;
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('result-card').style.display = 'none';
+
+        try {
+            const response = await fetch('http://localhost:5000/predict', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symptoms: Array.from(selectedSymptoms) })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+                const list = document.getElementById('results-list');
+                list.innerHTML = '';
+                data.predictions.forEach(p => {
+                    list.innerHTML += `
+                        <div class="prediction">
+                            <strong>${p.disease}</strong>
+                            <span style="color:var(--teal)">${p.confidence}% Match</span>
+                        </div>`;
+                });
+                document.getElementById('result-card').style.display = 'block';
+            }
+        } catch (e) {
+            alert("Connection error to server.");
+        } finally {
+            btn.disabled = false;
+            document.getElementById('loader').style.display = 'none';
+        }
+    }
+</script>
+
+</body>
+</html>
