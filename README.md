@@ -1,7 +1,7 @@
 # MediCheck AI 🩺
 
 > AI-powered symptom checker trained on 246,000 real medical cases.  
-> Predicts the most likely disease from a set of symptoms - +80% accuracy across 721 diseases.
+> Predicts the most likely disease from a set of symptoms  +80% accuracy across 721 diseases.
 
 ---
 
